@@ -5,115 +5,126 @@
 import Z3 from "./Z3Loader";
 import Z3Utils from "./Z3Utils";
 import Expr from "./Expr";
+const { spawn } = require("child_process");
 
 class Context {
 
-	constructor() {
-		this.fs = require("fs");
-		this.store_increment = 1;
-		let config = Z3.Z3_mk_config();
-        
-		Z3.Z3_set_param_value(config, "model", "true");
+	handleOstrichError(err) {
+		console.log(`error: ${err}`);
+	}
 
-		this.ctx = Z3.Z3_mk_context_rc(config);
-		Z3.Z3_del_config(config);
+	handleOstrichOutput(data) {
+		console.log(`ostrich said: ${data}`);
+		this.waitingForOstrich = false;
+	}
 
+	handleOstrichExit(code) {
+		console.log(`ostrich exited with code ${code}`);
+		  this.runningOstrich = false;
+		this.waitingForOstrich = false;
+	}
+
+	handleOstrichStderr(err_txt) {
+		console.log(`ostrich stderr: ${err_txt}`);
+	}
+
+	  constructor() {
+		    this.fs = require("fs");
+		    this.store_increment = 1;
+		    let config = Z3.Z3_mk_config();
         
-		const { spawn } = require("child_process");
-		this.ostrich = spawn("/home/henrik/UU/bachelor/ostrich/ostrich", ["+stdin", "+incremental"], {
-			stdio: [
-				"pipe",
-				"pipe",
-				0
-			]
-		});
+		    Z3.Z3_set_param_value(config, "model", "true");
+
+		    this.ctx = Z3.Z3_mk_context_rc(config);
+		    Z3.Z3_del_config(config);
+
 		this.runningOstrich = true;
-		this.waitingForOstrich = true;
-		
-		this.ostrich.stdout.on("readable", () => {
-			let chunk;
-			while (null !== (chunk = this.ostrich.stdout.read())) {
-				console.log(`Received ${chunk.length} bytes of data.`);
-			}
-			this.waitingForOstrich = false;
-		});
-        
-		this.ostrich.on("exit", () => {
-			console.log("Ostrich has shut down.");
-			this.runningOstrich = false;
-		});
+		    this.waitingForOstrich = true;
+		    this.ostrich = spawn("/Users/albin/ostrich/ostrich",
+			                       ["+stdin", "+incremental", "-logo"], {
+		                             stdio: [
+				                             "pipe",
+				                             "pipe",
+				                             "pipe",
+		                             ]
+			                       });
 
-		if (this.ostrich.stdout.readable){
-			console.log("Stream from ostrich should be working");
-		} else {
-			console.log("Stream from ostrich is not working");
-		}
+		    this.ostrich.stdout.on("data", this.handleOstrichOutput);
+		    this.ostrich.stderr.on("data", this.handleOstrichStderr);
+		    this.ostrich.on("exit", this.handleOstrichExit);
+		    this.ostrich.on("error", this.handleOstrichError);
+
+		    for(let i = 0; i < 10; i++) {
+			      console.log("waiting; ostrich is spawning...");
+		    }
+		    
 	}
     
-	writeToOstrich(string) {
+	  writeToOstrich(s) {
+		this.waitingForOstrich = true;
 		console.log("\n\n Writing to ostrich\n @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
-		console.log(string);
+		console.log(s);
 		console.log("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
-		if (this.ostrich.stdin.write(string + "\n") == false) {
+		if (this.ostrich.stdin.write(s) == false) {
 			console.log("ostrich.stdin overflow, nothing was written");
 		}
 
 	}
 
 
-	store(thingy) {
-		this.fs.writeFileSync("./context_output3.txt", this.store_increment + ". " + thingy + "\n",{flag: "a"});
-		return thingy;
-	}
+	  store(thingy) {
+		    this.fs.writeFileSync("./context_output3.txt", this.store_increment + ". " + thingy + "\n",{flag: "a"});
+		    return thingy;
+	  }
 
-	_nullExpr() {
-		return new Expr(this, null);
-	}
+	  _nullExpr() {
+		    return new Expr(this, null);
+	  }
 
-	_appendList(list, l2) {
-		return l2 ? list.concat(l2) : list;
-	}
+	  _appendList(list, l2) {
+		    return l2 ? list.concat(l2) : list;
+	  }
 
-	/**
+	  /**
      * TODO: is not recursive on array
      */
     
-	_buildChecks(args) {
-		return args.filter(next => next.checks).reduce((last, next) => this._appendList(last, next.checks), []);
-	}
+	  _buildChecks(args) {
+		    return args.filter(next => next.checks).reduce((last, next) => this._appendList(last, next.checks), []);
+	  }
 
-	_build(func, ...args) {
-		return this._buildConst.apply(this, [func, this._buildChecks(args, false)].concat(Z3Utils.astArray(args)));
-	}
+	  _build(func, ...args) {
+		    return this._buildConst.apply(this, [func, this._buildChecks(args, false)].concat(Z3Utils.astArray(args)));
+	  }
 
-	_buildConst(func, checks, ...args) {
-		let fnResult = func.apply(this, [this.ctx].concat(args));
-		return new Expr(this, fnResult, checks);      
-	}
+	  _buildConst(func, checks, ...args) {
+		    let fnResult = func.apply(this, [this.ctx].concat(args));
+		    return new Expr(this, fnResult, checks);      
+	  }
 
-	_buildVar(func, ...args) {
-		return this._buildVarNoArgs(func, args);
-	}
+	  _buildVar(func, ...args) {
+		    return this._buildVarNoArgs(func, args);
+	  }
 
-	_buildVarNoArgs(func, args) {
-		return new Expr(this, func(this.ctx, args.length, Z3Utils.astArray(args)), this._buildChecks(args, false));
-	}
+	  _buildVarNoArgs(func, args) {
+		    return new Expr(this, func(this.ctx, args.length, Z3Utils.astArray(args)), this._buildChecks(args, false));
+	  }
 
-	destroy() {
-		return this._build(Z3.Z3_del_context);
-	}
+	  destroy() {
+		    return this._build(Z3.Z3_del_context);
+	  }
 
-	incRef(e) {
-		Z3.Z3_inc_ref(this.ctx, e.ast);
-	}
+	  incRef(e) {
+		    Z3.Z3_inc_ref(this.ctx, e.ast);
+	  }
 
-	decRef(e) {
-		Z3.Z3_dec_ref(this.ctx, e.ast);
-	}
+	  decRef(e) {
+		    Z3.Z3_dec_ref(this.ctx, e.ast);
+	  }
 
-	mkApp(func, args) {
-		return this._build(Z3.Z3_mk_app, func, args.length, args);
-	}
+	  mkApp(func, args) {
+		    return this._build(Z3.Z3_mk_app, func, args.length, args);
+	  }
 
 	mkArray(name, baseSort) {
 		let arraySort = this.mkArraySort(this.mkIntSort(), baseSort);

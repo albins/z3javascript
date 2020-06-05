@@ -77,12 +77,12 @@ class Solver {
 			return Z3.Z3_solver_check(this.context.ctx, this.slv) === Z3.TRUE;
 		} else {
 			this.context.writeToOstrich("(check-sat)");
-			var c = 1;
+			  var c = 1;
             
 			while(this.context.waitingForOstrich){
 				c++;
 				if (c % 1000000000 == 0) {
-					console.log("Waiting for ostrich...");
+					  console.log("Waiting for ostrich...");
 				}
 			}
 			this.context.waitingForOstrich = true;
